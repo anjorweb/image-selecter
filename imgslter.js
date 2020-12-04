@@ -1,24 +1,28 @@
 /*!
  * VERSION: 0.1.0
  * DATE: 2015-09-24
- * GIT: https://github.com/shrekshrek/image-selecter
- * @author: Shrek.wang
+ * GIT:https://github.com/shrekshrek/image-selecter
+ *
+ * @author: Shrek.wang, shrekshrek@gmail.com
  **/
 
 (function (factory) {
 
+    var root = (typeof self == 'object' && self.self == self && self) ||
+        (typeof global == 'object' && global.global == global && global);
+
     if (typeof define === 'function' && define.amd) {
         define(['exif', 'exports'], function (EXIF, exports) {
-            window.ImgSlter = factory(exports, EXIF);
+            root.ImgSlter = factory(root, exports, EXIF);
         });
     } else if (typeof exports !== 'undefined') {
         var EXIF = require('exif');
-        factory(exports, EXIF);
+        factory(root, exports, EXIF);
     } else {
-        window.ImgSlter = factory({}, window.EXIF);
+        root.ImgSlter = factory(root, {}, root.EXIF);
     }
 
-}(function (ImgSlter, EXIF) {
+}(function (root, ImgSlter, EXIF) {
 
     function uaParser() {
         var u = navigator.userAgent;
@@ -28,37 +32,67 @@
         };
     }
 
+    function extend(obj, obj2) {
+        for (var prop in obj2) {
+            obj[prop] = obj2[prop];
+        }
+    }
+
     ImgSlter = function () {
         this.initialize.apply(this, arguments);
     };
 
-    ImgSlter.prototype = {
+    extend(ImgSlter.prototype, {
         initialize: function (config) {
+            var _self = this;
+
             var _config = config || {};
             this.el = _config.el || function () {
-                    var input = document.createElement("INPUT");
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    // input.capture = 'camera';
-                    input.multiple = false;
-                    return input;
-                }();
+                var input = document.createElement("INPUT");
+                input.type = 'file';
+                input.accept = 'image/*';
+                // input.capture = 'camera';
+                return input;
+            }();
             this.size = _config.size || 500;
             this.type = _config.type || 'jpeg';
             this.quality = _config.quality || 0.7;
-            this.handler = _config.handler || function () {
-                };
-            this.color = _config.color;
+            this.handler = _config.handler || function(){};
 
             this.ua = uaParser();
             this.cvs = document.createElement('canvas');
             this.ctx = this.cvs.getContext('2d');
 
-            this._changeHandler = this._changeHandler.bind(this);
-            this.el.addEventListener('change', this._changeHandler, false);
-
+            this.changeHandler = function (evt) {
+                _self.change(evt);
+            };
+            this.el.addEventListener('change', this.changeHandler, false);
         },
-        _changeHandler: function (evt) {
+        // 判断浏览器是否支持自动回正
+        detectImageAutomaticRotation: function() {
+            var testAutoOrientationImageURL =
+            'data:image/jpeg;base64,/9j/4QAiRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAYAAAA' +
+            'AAAD/2wCEAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA' +
+            'QEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE' +
+            'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAf/AABEIAAEAAgMBEQACEQEDEQH/x' +
+            'ABKAAEAAAAAAAAAAAAAAAAAAAALEAEAAAAAAAAAAAAAAAAAAAAAAQEAAAAAAAAAAAAAAAA' +
+            'AAAAAEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8H//2Q==';
+            var isImageAutomaticRotation;
+            return new Promise(function(resolve, reject) {
+                if (isImageAutomaticRotation === undefined) {
+                    var img = new Image();
+                    img.onload = function() {
+                        // 如果图片变成 1x2，说明浏览器对图片进行了回正
+                        isImageAutomaticRotation = img.width === 1 && img.height === 2;
+                        resolve(isImageAutomaticRotation);
+                    }
+                    img.src = testAutoOrientationImageURL;
+                  } else {
+                    resolve(isImageAutomaticRotation);
+                  }
+            });
+        },
+        change: function (evt) {
             var _self = this;
 
             var _file = evt.target.files[0];
@@ -72,11 +106,12 @@
             var src = window.URL.createObjectURL(_file);
 
             var img = new Image();
-            img.src = src;
+            img.src = src;console.log(img);
             img.onload = function () {
                 EXIF.getData(img, function () {
+                    var data = EXIF.getAllTags(this);
                     var Orientation = EXIF.getTag(this, 'Orientation') || 0;
-
+                    
                     imgW = img.width;
                     imgH = img.height;
 
@@ -91,64 +126,64 @@
                         tmpImgW = imgH;
                         tmpImgH = imgW;
                     }
-
-                    var _w, _h, _r;
-                    switch (Orientation) {
-                        case 3:
-                            _w = imgW2;
-                            _h = imgH2;
-                            _r = 180;
-                            break;
-                        case 6:
-                            _w = imgH2;
-                            _h = imgW2;
-                            _r = 90;
-                            break;
-                        case 8:
-                            _w = imgH2;
-                            _h = imgW2;
-                            _r = 270;
-                            break;
-                        default:
-                            _w = imgW2;
-                            _h = imgH2;
-                            _r = 0;
-                            break;
-                    }
-
-                    _self.cvs.width = _w;
-                    _self.cvs.height = _h;
-                    _self.ctx.clearRect(0, 0, _w, _h);
-
-                    if (_self.color) {
-                        _self.ctx.fillStyle = _self.color;
-                        _self.ctx.fillRect(0, 0, _w, _h);
-                    }
-
-                    _self.ctx.translate(_w / 2, _h / 2);
-                    _self.ctx.rotate(_r * Math.PI / 180);
-
-                    if (3260 < tmpImgW || tmpImgH > 2440) {
-                        if (_self.ua.ios) {
-                            if (parseInt(_self.ua.iosv) >= 8) {
-                                _self.ctx.drawImage(img, 0, 0, imgW, imgH, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
-                            } else {
-                                _self.ctx.drawImage(img, 0, 0, imgW / 2, imgH / 2, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                    _self.detectImageAutomaticRotation().then(function(isRotate) {
+                        if (!isRotate) {
+                            switch (Orientation) {
+                                case 3:
+                                    _self.cvs.width = imgW2;
+                                    _self.cvs.height = imgH2;
+                                    _self.ctx.clearRect(0, 0, imgW2, imgH2);
+                                    _self.ctx.translate(imgW2 / 2, imgH2 / 2);
+                                    _self.ctx.rotate(180 * Math.PI / 180);
+                                    break;
+                                case 6:
+                                    _self.cvs.width = imgH2;
+                                    _self.cvs.height = imgW2;
+                                    _self.ctx.clearRect(0, 0, imgH2, imgW2);
+                                    _self.ctx.translate(imgH2 / 2, imgW2 / 2);
+                                    _self.ctx.rotate(90 * Math.PI / 180);
+                                    break;
+                                case 8:
+                                    _self.cvs.width = imgH2;
+                                    _self.cvs.height = imgW2;
+                                    _self.ctx.clearRect(0, 0, imgH2, imgW2);
+                                    _self.ctx.translate(imgH2 / 2, imgW2 / 2);
+                                    _self.ctx.rotate(270 * Math.PI / 180);
+                                    break;
+                                default:
+                                    _self.cvs.width = imgW2;
+                                    _self.cvs.height = imgH2;
+                                    _self.ctx.clearRect(0, 0, imgW2, imgH2);
+                                    _self.ctx.translate(imgW2 / 2, imgH2 / 2);
+                                    break;
                             }
                         } else {
-                            _self.ctx.drawImage(img, 0, 0, imgW, imgH, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                            _self.cvs.width = imgW2;
+                            _self.cvs.height = imgH2;
+                            _self.ctx.clearRect(0, 0, imgW2, imgH2);
+                            _self.ctx.translate(imgW2 / 2, imgH2 / 2);
                         }
-                    } else {
-                        _self.ctx.drawImage(img, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
-                    }
-
-                    _self.handler.call(this, {
-                        img: _self.cvs.toDataURL('image/' + _self.type, _self.quality),
-                        width: _self.cvs.width,
-                        height: _self.cvs.height
-                    });
-
-                    window.URL.revokeObjectURL(_file);
+                        if (3260 < tmpImgW || tmpImgH > 2440) {
+                            if (_self.ua.ios) {
+                                if (parseInt(_self.ua.iosv) >= 8) {
+                                    _self.ctx.drawImage(img, 0, 0, imgW, imgH, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                                } else {
+                                    _self.ctx.drawImage(img, 0, 0, imgW / 2, imgH / 2, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                                }
+                            } else {
+                                _self.ctx.drawImage(img, 0, 0, imgW, imgH, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                            }
+                        } else {
+                            _self.ctx.drawImage(img, -imgW2 / 2, -imgH2 / 2, imgW2, imgH2);
+                        }
+                        _self.handler.call(this, {
+                            img: _self.cvs.toDataURL('image/' + _self.type, _self.quality),
+                            width: _self.cvs.width,
+                            height: _self.cvs.height,
+                            data: data,
+                        });
+                        window.URL.revokeObjectURL(_file);
+                    })
                 });
             };
         },
@@ -156,13 +191,13 @@
             if (this.el) this.el.click();
         },
         destroy: function () {
-            this.el.removeEventListener('change', this._changeHandler, false);
+            this.el.removeEventListener('change', this.changeHandler, false);
             delete this.ua;
             delete this.ctx;
             delete this.cvs;
             delete this.el;
         }
-    };
+    });
 
     return ImgSlter;
 }));
